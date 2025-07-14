@@ -2,10 +2,12 @@ from fastapi import FastAPI, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from passlib.context import CryptContext
-
+# 파일 가져오기
 from . import models, schemas
 from .database import engine, SessionLocal
 from .auth import create_access_token, verify_token
+
+
 # 테이블 생성
 models.Base.metadata.create_all(bind=engine)
 app = FastAPI()
@@ -58,3 +60,9 @@ def get_me(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     return {"username": user.username}
 
 
+@app.post("/hi")
+def get_hi(user: schemas.UserCreate, db: Session = Depends(get_db)):
+    if user.password == "hi":
+        return {"msg": "hihi"}
+    else:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
