@@ -60,9 +60,8 @@ def get_me(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     return {"username": user.username}
 
 
-@app.post("/hi")
-def get_hi(user: schemas.UserCreate, db: Session = Depends(get_db)):
-    if user.password == "hi":
-        return {"msg": "hihi"}
-    else:
-        raise HTTPException(status_code=401, detail="Invalid credentials")
+@app.get("/hi")
+def get_hi(db: Session = Depends(get_db)):
+    users = db.query(models.User).all()
+    result = [{"id": user.id, "username": user.username} for user in users]
+    return {"msg": result}
