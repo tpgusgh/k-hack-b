@@ -2,12 +2,12 @@ from fastapi import FastAPI, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from passlib.context import CryptContext
-# 파일 가져오기
+from fastapi.middleware.cors import CORSMiddleware
 from . import models, schemas
 from .database import engine, SessionLocal
 from .auth import create_access_token, verify_token
-
-
+import requests
+from bs4 import BeautifulSoup
 # 테이블 생성
 models.Base.metadata.create_all(bind=engine)
 app = FastAPI()
@@ -17,6 +17,13 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # 모든 도메인 허용
+    allow_credentials=True,
+    allow_methods=["*"],  # 모든 HTTP 메서드 허용 (GET, POST 등)
+    allow_headers=["*"],  # 모든 헤더 허용
+)
 # DB 세션
 def get_db():
     db = SessionLocal()
@@ -60,8 +67,30 @@ def get_me(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     return {"username": user.username}
 
 
+
 @app.get("/hi")
 def get_hi(db: Session = Depends(get_db)):
     users = db.query(models.User).all()
     result = [{"id": user.id, "username": user.username} for user in users]
     return {"msg": result}
+
+def get_samsung_stock_price():
+    url = "https://finance.naver.com/item/main.nhn?code=005930"
+    headers = {
+        "User-Agent": "Mozilla/5.0"
+    }
+    response = requests.get(url, headers=headers)
+    soup = BeautifulSoup(response.text, "html.parser")
+
+    price_tag = soup.select_one("p.no_today span.blind")
+    if price_tag:
+        return price_tag.text.replace(",", "")
+    return None
+
+@app.get("/samsung/price")
+def read_stock_price():
+    price = get_samsung_stock_price()
+    if price:
+        return {"ticker": "삼성전자", "price": int(price)}
+    else:
+        return {"error": "가격을 불러오지 못했습니다."}
