@@ -15,6 +15,14 @@ app = FastAPI()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
+# 종목 코드 매핑
+STOCK_CODES = {
+    "삼성전자": "005930",
+    "애플": "AAPL",
+    "LG전자": "066570",
+    "GS리테일": "007070",
+    "GS": "078930",
+}
 
 
 app.add_middleware(
@@ -31,6 +39,24 @@ def get_db():
         yield db
     finally:
         db.close()
+
+def get_stock_price(code: str):
+    """
+    Naver 금융에서 주가 가져오기
+    """
+    url = f"https://finance.naver.com/item/main.nhn?code={code}"
+    headers = {
+        "User-Agent": "Mozilla/5.0"
+    }
+    response = requests.get(url, headers=headers)
+    soup = BeautifulSoup(response.text, "html.parser")
+
+    price_tag = soup.select_one("p.no_today span.blind")
+    if price_tag:
+        return price_tag.text.replace(",", "")
+    return None
+
+
 
 # 회원가입 json
 @app.post("/signup")
@@ -94,3 +120,16 @@ def read_stock_price():
         return {"ticker": "삼성전자", "price": int(price)}
     else:
         return {"error": "가격을 불러오지 못했습니다."}
+
+
+@app.get("/stocks")
+def read_multiple_stock_prices():
+    results = []
+    for name, code in STOCK_CODES.items():
+        price = get_stock_price(code)
+        if price:
+            results.append({"ticker": name, "price": int(price)})
+        else:
+            results.append({"ticker": name, "error": "가격을 불러오지 못했습니다."})
+    return results
+
