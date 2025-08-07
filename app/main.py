@@ -18,7 +18,7 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 # 종목 코드 매핑
 STOCK_CODES = {
     "삼성전자": "005930",
-    "애플": "AAPL",
+    "화일전자": "061250",
     "LG전자": "066570",
     "GS리테일": "007070",
     "GS": "078930",
