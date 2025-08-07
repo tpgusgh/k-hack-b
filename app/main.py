@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException,Query
 from sqlalchemy.orm import Session
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from passlib.context import CryptContext
@@ -7,14 +7,17 @@ from . import models, schemas
 from .database import engine, SessionLocal
 from .auth import create_access_token, verify_token
 import requests
+from apscheduler.schedulers.background import BackgroundScheduler
 from bs4 import BeautifulSoup
+from .models import StockPriceHistory
+
 # 테이블 생성
 models.Base.metadata.create_all(bind=engine)
 app = FastAPI()
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
+scheduler = BackgroundScheduler()
 # 종목 코드 매핑
 STOCK_CODES = {
     "삼성전자": "005930",
@@ -22,7 +25,13 @@ STOCK_CODES = {
     "LG전자": "066570",
     "GS리테일": "007070",
     "GS": "078930",
+    "POSCO홀딩스": "005490",
+    "SK하이닉스": "000660",
+    "NAVER": "035420",
+    "카카오": "035720",
+    "현대차": "005380",
 }
+
 
 
 app.add_middleware(
@@ -56,6 +65,31 @@ def get_stock_price(code: str):
         return price_tag.text.replace(",", "")
     return None
 
+def fetch_and_save_all_stock_prices():
+    db = SessionLocal()
+    try:
+        for name, code in STOCK_CODES.items():
+            price_str = get_stock_price(code)
+            if price_str:
+                price = int(price_str)
+                save_stock_price_history(db, code, price)
+    finally:
+        db.close()
+
+def save_stock_to_db(db: Session, name: str, code: str, price: int):
+    stock = db.query(models.Stock).filter(models.Stock.code == code).first()
+    if stock:
+        stock.price = price  # 기존 값 업데이트
+    else:
+        stock = models.Stock(name=name, code=code, price=price)
+        db.add(stock)
+    db.commit()
+
+def save_stock_price_history(db: Session, code: str, price: int):
+    from datetime import datetime
+    history = StockPriceHistory(code=code, price=price, timestamp=datetime.utcnow())
+    db.add(history)
+    db.commit()
 
 
 # 회원가입 json
@@ -123,13 +157,51 @@ def read_stock_price():
 
 
 @app.get("/stocks")
-def read_multiple_stock_prices():
+def read_multiple_stock_prices(db: Session = Depends(get_db)):
     results = []
     for name, code in STOCK_CODES.items():
         price = get_stock_price(code)
         if price:
-            results.append({"ticker": name, "price": int(price)})
+            price_int = int(price)
+            results.append({"name": name, "code": code, "price": price_int})
+            save_stock_to_db(db, name, code, price_int)  # DB 저장
         else:
-            results.append({"ticker": name, "error": "가격을 불러오지 못했습니다."})
+            results.append({"name": name, "code": code, "error": "가격을 불러오지 못했습니다."})
     return results
 
+
+@app.get("/stocks/db")
+def get_stocks_from_db(db: Session = Depends(get_db)):
+    stocks = db.query(models.Stock).all()
+    return [{"name": stock.name, "code": stock.code, "price": stock.price} for stock in stocks]
+
+
+@app.get("/stocks/history")
+def get_stock_price_history(
+    code: str = Query(..., description="종목 코드"),
+    limit: int = Query(100, description="조회할 최대 기록 개수"),
+    db: Session = Depends(get_db)
+):
+    """
+    특정 종목 코드의 가격 기록을 최신순으로 조회합니다.
+    """
+    records = (
+        db.query(models.StockPriceHistory)
+        .filter(models.StockPriceHistory.code == code)
+        .order_by(models.StockPriceHistory.timestamp.desc())
+        .limit(limit)
+        .all()
+    )
+
+    return [
+        {
+            "code": record.code,
+            "price": record.price,
+            "timestamp": record.timestamp.isoformat()
+        }
+        for record in records
+    ]
+
+
+scheduler.add_job(fetch_and_save_all_stock_prices, 'interval', minutes=5)
+scheduler.start()
